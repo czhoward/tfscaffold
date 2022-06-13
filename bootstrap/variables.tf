@@ -8,7 +8,7 @@ variable "aws_account_id" {
   description = "The AWS Account ID into which we are bootstrapping tfscaffold"
 }
 
-variable "region" {
+variable "aws_region" {
   type        = string
   description = "The AWS Region into which we are bootstrapping tfscaffold"
 }

@@ -10,13 +10,48 @@
 ##
 readonly script_ver="1.7.0";
 
-##
-# Standardised failure function
-##
+############
+# FUNCTIONS
+####################################################################################################
+color_err="\e[1m\e[31m";
+color_ok="\e[1m\e[32m";
+color_wrn="\e[1m\e[33m";
+color_end="\e[0m";
+
+function check_shell_colors {
+  if [[ ${TF_CLI_ARGS} =~ "-no-color" ]]; then
+    unset color_start;
+    unset color_end;
+    export BASHLOG_COLOURS=0;
+  fi
+}
+
 function error_and_die {
-  echo -e "ERROR: ${1}" >&2;
+  color_start=$color_err;
+  check_shell_colors;
+
+  echo -e "\n${color_start}[ERROR]${color_end} ${1}" >&2;
   exit 1;
 };
+
+function log {
+  case $1 in
+    info)
+      level="INFO";
+      color_start=$color_ok;
+      ;;
+    warn)
+      level="WARNING";
+      color_start=$color_wrn;
+      ;;
+    *)
+      ;;
+  esac;
+  message=$2;
+  check_shell_colors;
+
+  echo -e "\n${color_start}[${level}]${color_end} ${message}";
+}
 
 ##
 # Print Script Version
@@ -98,6 +133,10 @@ no-color (optional):
 compact-warnings (optional):
  Append -compact-warnings to all terraform calls
 
+region (optional):
+  Defaults to value of \$AWS_DEFAULT_REGION
+  - the AWS region name unique to all components and terraform processes
+
 additional arguments:
  Any arguments provided after "--" will be passed directly to terraform as its own arguments
 EOF
@@ -116,8 +155,8 @@ fi
 ##
 readonly raw_arguments="${*}";
 ARGS=$(getopt \
-         -o dhnvwa:b:c:e:g:i:p:r: \
-         -l "help,version,bootstrap,action:,bucket-prefix:,build-id:,component:,environment:,group:,project:,region:,detailed-exitcode,no-color,compact-warnings" \
+         -o dhnvwa:b:c:e:g:i:p:r:o: \
+         -l "help,version,bootstrap,action:,bucket-prefix:,build-id:,component:,environment:,group:,project:,region:,detailed-exitcode,no-color,compact-warnings:,output-plan:" \
          -n "${0}" \
          -- \
          "$@");
@@ -209,6 +248,14 @@ while true; do
         shift;
       fi;
       ;;
+    -o|--output-plan)
+      shift;
+      declare output_plan;
+      if [ -n "${1}" ]; then
+        output_plan="${1}";
+        shift;
+      fi;
+      ;;
     --bootstrap)
       shift;
       bootstrap="true";
@@ -287,7 +334,7 @@ fi;
 # Validate AWS Credentials Available
 iam_iron_man="$(aws sts get-caller-identity --query 'Arn' --output text)";
 if [ -n "${iam_iron_man}" ]; then
-  echo -e "AWS Credentials Found. Using ARN '${iam_iron_man}'";
+  log "info" "AWS Credentials Found. Using ARN: '${iam_iron_man}'";
 else
   error_and_die "No AWS Credentials Found. \"aws sts get-caller-identity --query 'Arn' --output text\" responded with ARN '${iam_iron_man}'";
 fi;
@@ -295,7 +342,7 @@ fi;
 # Query canonical AWS Account ID
 aws_account_id="$(aws sts get-caller-identity --query 'Account' --output text)";
 if [ -n "${aws_account_id}" ]; then
-  echo -e "AWS Account ID: ${aws_account_id}";
+  log "info" "AWS Account ID: ${aws_account_id}";
 else
   error_and_die "Couldn't determine AWS Account ID. \"aws sts get-caller-identity --query 'Account' --output text\" provided no output";
 fi;
@@ -303,10 +350,10 @@ fi;
 # Validate S3 bucket. Set default if undefined
 if [ -n "${bucket_prefix}" ]; then
   readonly bucket="${bucket_prefix}-${aws_account_id}-${region}"
-  echo -e "Using S3 bucket s3://${bucket}";
+  log "info" "Using S3 bucket s3://${bucket}";
 else
   readonly bucket="${project}-tfscaffold-${aws_account_id}-${region}";
-  echo -e "No bucket prefix specified. Using S3 bucket s3://${bucket}";
+  log "info" "No bucket prefix specified. Using S3 bucket s3://${bucket}";
 fi;
 
 declare component_path;
@@ -335,13 +382,16 @@ fi;
 case "${action}" in
   apply)
     refresh="-refresh=true";
+    out_plan="${output_plan}"
     ;;
   destroy)
     destroy='-destroy';
+    force='-force';
     refresh="-refresh=true";
     ;;
   plan)
     refresh="-refresh=true";
+    out_plan="-out=${output_plan}"
     ;;
   plan-destroy)
     action="plan";
@@ -406,7 +456,73 @@ if [ "${bootstrap}" == "true" ]; then
 
   # Bootstrap requires this parameter as explicit as it is constructed here
   # for multiple uses, so we cannot just depend on it being set in tfvars
+  tf_var_params+=" -var aws_region=${region}";
+  tf_var_params+=" -var project=${project}";
   tf_var_params+=" -var bucket_name=${bucket}";
+  tf_var_params+=" -var aws_account_id=${aws_account_id}";
+else
+  # Use versions TFVARS files if exists
+  readonly versions_file_name="versions_${region}_${environment}.tfvars";
+  readonly versions_file_path="${base_path}/etc/${versions_file_name}";
+
+  # Environment is normally expected, but in bootstrapping it may not be provided
+  if [ -n "${environment}" ]; then
+    # Check environment name is a known environment
+    readonly env_file_path="${base_path}/etc/env_${region}_${environment}.tfvars";
+    if [ -f "${env_file_path}" ]; then
+      tf_var_file_paths+=("${env_file_path}");
+    else
+      error_and_die "Unknown environment - ${env_file_path} does not exist!";
+    fi;
+  fi;
+  
+  # Check for presence of a global variables file, and use it if readable
+  readonly global_vars_file_name="global.tfvars";
+  readonly global_vars_file_path="${base_path}/etc/${global_vars_file_name}";
+
+  # Check for presence of a region variables file, and use it if readable
+  readonly region_vars_file_name="${region}.tfvars";
+  readonly region_vars_file_path="${base_path}/etc/${region_vars_file_name}";
+
+  # Check for presence of a group variables file if specified, and use it if readable
+  if [ -n "${group}" ]; then
+    readonly group_vars_file_name="group_${group}.tfvars";
+    readonly group_vars_file_path="${base_path}/etc/${group_vars_file_name}";
+  fi;
+
+  # Collect the paths of the variables files to use
+  declare -a tf_var_file_paths;
+
+  # Use Global and Region first
+  [ -f "${global_vars_file_path}" ] && tf_var_file_paths+=("${global_vars_file_path}");
+  [ -f "${region_vars_file_path}" ] && tf_var_file_paths+=("${region_vars_file_path}");
+
+  # If a group has been specified, load the vars for the group.
+  if [ -n "${group}" ]; then
+    if [ -f "${group_vars_file_path}" ]; then
+      tf_var_file_paths+=("${group_vars_file_path}");
+    else
+      log "warn" "Group \"${group}\" has been specified, but no group variables file is available at ${group_vars_file_path}";
+    fi;
+  fi;
+
+  tf_var_file_paths+=("${env_file_path}");
+
+  # If present and readable, use versions and dynamic variables too
+  [ -f "${versions_file_path}" ] && tf_var_file_paths+=("${versions_file_path}");
+  [ -f "${dynamic_file_path}" ] && tf_var_file_paths+=("${dynamic_file_path}");
+
+  # Warn on variables duplication
+  duplicate_variables="$(cat "${tf_var_file_paths[@]}" | sed -n -e 's/\(^[a-zA-Z0-9_\-]\+\)\s*=.*$/\1/p' | sort | uniq -d)";
+  [ -n "${duplicate_variables}" ] \
+    && log "warn" "Duplicated variables found:\n${duplicate_variables}";
+
+  # Build up the tfvars arguments for terraform command line
+  if [[ "${action}" != "apply" ]] || ([[ "${action}" == "apply" && -z "$output_plan" ]]); then
+    for file_path in "${tf_var_file_paths[@]}"; do
+      tf_var_params+=" -var-file=${file_path}";
+    done;
+  fi;
 fi;
 
 # Run component-specific pre.sh
@@ -463,89 +579,8 @@ if [ $? -eq 0 ]; then
     || error_and_die "S3 tfvars file is present, but inaccessible. Ensure you have permission to read s3://${bucket}/${project}/${aws_account_id}/${region}/${environment}/${dynamic_file_name}";
 fi;
 
-# Use versions TFVAR files if exists
-readonly versions_file_name="versions_${region}_${environment}.tfvars";
-readonly versions_file_path="${base_path}/etc/${versions_file_name}";
 
-# Check for presence of an environment variables file, and use it if readable
-if [ -n "${environment}" ]; then
-  readonly env_file_path="${base_path}/etc/env_${region}_${environment}.tfvars";
-fi;
 
-# Check for presence of a global variables file, and use it if readable
-readonly global_vars_file_name="global.tfvars";
-readonly global_vars_file_path="${base_path}/etc/${global_vars_file_name}";
-
-# Check for presence of a region variables file, and use it if readable
-readonly region_vars_file_name="${region}.tfvars";
-readonly region_vars_file_path="${base_path}/etc/${region_vars_file_name}";
-
-# Check for presence of a group variables file if specified, and use it if readable
-if [ -n "${group}" ]; then
-  readonly group_vars_file_name="group_${group}.tfvars";
-  readonly group_vars_file_path="${base_path}/etc/${group_vars_file_name}";
-fi;
-
-# Collect the paths of the variables files to use
-declare -a tf_var_file_paths;
-
-# Use Global and Region first, to allow potential for terraform to do the
-# honourable thing and override global and region settings with environment
-# specific ones; however we do not officially support the same variable
-# being declared in multiple locations, and we warn when we find any duplicates
-[ -f "${global_vars_file_path}" ] && tf_var_file_paths+=("${global_vars_file_path}");
-[ -f "${region_vars_file_path}" ] && tf_var_file_paths+=("${region_vars_file_path}");
-
-# If a group has been specified, load the vars for the group. If we are to assume
-# terraform correctly handles override-ordering (which to be fair we don't hence
-# the warning about duplicate variables below) we add this to the list after
-# global and region-global variables, but before the environment variables
-# so that the environment can explicitly override variables defined in the group.
-if [ -n "${group}" ]; then
-  if [ -f "${group_vars_file_path}" ]; then
-    tf_var_file_paths+=("${group_vars_file_path}");
-  else
-    echo -e "[WARNING] Group \"${group}\" has been specified, but no group variables file is available at ${group_vars_file_path}";
-  fi;
-fi;
-
-# Environment is normally expected, but in bootstrapping it may not be provided
-if [ -n "${environment}" ]; then
-  if [ -f "${env_file_path}" ]; then
-    tf_var_file_paths+=("${env_file_path}");
-  else
-    echo -e "[WARNING] Environment \"${environment}\" has been specified, but no environment variables file is available at ${env_file_path}";
-  fi;
-fi;
-
-# If present and readable, use versions and dynamic variables too
-[ -f "${versions_file_path}" ] && tf_var_file_paths+=("${versions_file_path}");
-[ -f "${dynamic_file_path}" ] && tf_var_file_paths+=("${dynamic_file_path}");
-
-# Warn on duplication
-duplicate_variables="$(cat "${tf_var_file_paths[@]}" | sed -n -e 's/\(^[a-zA-Z0-9_\-]\+\)\s*=.*$/\1/p' | sort | uniq -d)";
-[ -n "${duplicate_variables}" ] \
-  && echo -e "
-###################################################################
-# WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING #
-###################################################################
-The following input variables appear to be duplicated:
-
-${duplicate_variables}
-
-This could lead to unexpected behaviour. Overriding of variables
-has previously been unpredictable and is not currently supported,
-but it may work.
-
-Recent changes to terraform might give you useful overriding and
-map-merging functionality, please use with caution and report back
-on your successes & failures.
-###################################################################";
-
-# Build up the tfvars arguments for terraform command line
-for file_path in "${tf_var_file_paths[@]}"; do
-  tf_var_params+=" -var-file=${file_path}";
-done;
 
 ##
 # Start Doing Real Things
@@ -561,7 +596,7 @@ done;
 #
 # For now we're left with this garbage, and no more support for <0.9.0.
 if [ -f backend_tfscaffold.tf ]; then
-  echo -e "WARNING: backend_tfscaffold.tf exists and will be overwritten!" >&2;
+  log "warn" "The 'backend_terraformscaffold.tf' file exists and will be overwritten!\nPlease make sure you're not checking it in to source control.";
 fi;
 
 declare backend_prefix;
@@ -570,9 +605,11 @@ declare backend_filename;
 if [ "${bootstrap}" == "true" ]; then
   backend_prefix="${project}/${aws_account_id}/${region}/bootstrap";
   backend_filename="bootstrap.tfstate";
+  dynamodb_table="null";
 else
   backend_prefix="${project}/${aws_account_id}/${region}/${environment}";
   backend_filename="${component_name}.tfstate";
+  dynamodb_table="\"${bucket}\"";
 fi;
 
 readonly backend_key="${backend_prefix}/${backend_filename}";
@@ -581,6 +618,7 @@ readonly backend_config="terraform {
     region = \"${region}\"
     bucket = \"${bucket}\"
     key    = \"${backend_key}\"
+    dynamodb_table = \"${dynamodb_table}\"
   }
 }";
 
@@ -735,8 +773,7 @@ case "${action}" in
         trap "rm -f $(pwd)/backend_tfscaffold.tf" EXIT;
 
         # Push Terraform Remote State to S3
-        # TODO: Add -upgrade to init when we drop support for <0.10
-        echo "yes" | terraform init || error_and_die "Terraform init failed";
+        echo "yes" | terraform init -upgrade || error_and_die "Terraform init failed";
 
         # Hard cleanup
         rm -f backend_tfscaffold.tf;
