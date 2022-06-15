@@ -42,11 +42,11 @@ Scaffold provides a logical separation of several types of environment variable:
  * Dynamic (S3 stored) variables
  * Secret (S3 stored, KMS encrypted variables - available but not recommended)
 
-This seperation is purely logical, not functional. It makes no functional difference in which file a variable lives, or even whether a versions variables file exists; but it provides the capacity to seperate out mostly static variables that define the construction of the environment from variables that could change on each apply providing new AMI IDs, or dockerised application versions or database snapshot IDs when recreating development and testing databases.
+This separation is purely logical, not functional. It makes no functional difference in which file a variable lives, or even whether a versions variables file exists; but it provides the capacity to separate out mostly static variables that define the construction of the environment from variables that could change on each apply providing new AMI IDs, or dockerised application versions or database snapshot IDs when recreating development and testing databases.
 
 ### AWS Credentials
 
-Terraform Scaffold does not provide any mechanism for running terraform across multiple AWS accounts simultaneously, storing state files in a different account to the account being modified or any other functionality that would require Scaffold to intelligently manage AWS credentials. After extensive research and development it has become apparant that, despite some features available in terraform to handle more than one AWS account and the use of IAM roles, the features are not sufficiently mature or flexible to allow their application in a generic form.
+Terraform Scaffold does not provide any mechanism for running terraform across multiple AWS accounts simultaneously, storing state files in a different account to the account being modified or any other functionality that would require Scaffold to intelligently manage AWS credentials. After extensive research and development it has become apparent that, despite some features available in terraform to handle more than one AWS account and the use of IAM roles, the features are not sufficiently mature or flexible to allow their application in a generic form.
 
 Therefore, to ensure widest possible reach and capability of Scaffold, it requires that a specific set of AWS credentials be provided to it at invocation. These credentials must have the necessary access to read and write to the bootstrapped S3 state file bucket, and to create/modify/destroy the AWS resources being controlled via terraform.
 
