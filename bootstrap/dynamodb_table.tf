@@ -13,10 +13,9 @@ resource "aws_dynamodb_table" "tfstate_lock" {
     enabled = true
   }
 
-  tags = merge(
-    local.default_tags,
-    map(
-      "Name", "TFScaffold TFState lock table",
-    ),
+  tags = merge(local.default_tags,
+    {
+      Name = "Terraform Scaffold TFState lock table"
+    },
   )
 }

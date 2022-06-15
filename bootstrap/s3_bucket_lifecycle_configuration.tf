@@ -1,5 +1,5 @@
-resource "aws_s3_bucket_lifecycle_configuration" "bucket" {
-  bucket                = aws_s3_bucket.bucket.id
+resource "aws_s3_bucket_lifecycle_configuration" "tfstate_bucket" {
+  bucket                = aws_s3_bucket.tfstate_bucket.id
   expected_bucket_owner = var.aws_account_id
 
   rule {

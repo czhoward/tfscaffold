@@ -1,9 +1,9 @@
 output "bucket_arn" {
-  value = aws_s3_bucket.bucket.arn
+  value = aws_s3_bucket.tfstate_bucket.arn
 }
 
 output "bucket_policy" {
-  value = data.aws_iam_policy_document.bucket.json
+  value = data.aws_iam_policy_document.tfstate_bucket.json
 }
 
 output "kms_key_arn" {

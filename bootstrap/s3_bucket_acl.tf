@@ -1,4 +1,4 @@
-resource "aws_s3_bucket_acl" "bucket" {
-  bucket = aws_s3_bucket.bucket.id
+resource "aws_s3_bucket_acl" "tfstate_bucket" {
+  bucket = aws_s3_bucket.tfstate_bucket.id
   acl    = "private"
 }
