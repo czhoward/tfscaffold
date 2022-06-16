@@ -244,7 +244,7 @@ while true; do
     -p|--project)
       shift;
       if [ -n "${1}" ]; then
-        project="${1}";
+        project_arg="${1}";
         shift;
       fi;
       ;;
@@ -288,7 +288,8 @@ declare extra_args="${@} ${no_color} ${compact_warnings}"; # All arguments suppl
 # Determine where I am and from that derive basepath and project name
 script_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )";
 base_path="${script_path%%\/bin}";
-project_name_default="${base_path##*\/}";
+current_path="$(pwd)"
+project_name_default="${current_path##*\/}";
 
 status=0;
 
@@ -307,8 +308,8 @@ readonly region="${region_arg:-${AWS_DEFAULT_REGION}}";
 [ -n "${region}" ] \
   || error_and_die "No AWS region specified. No -r/--region argument supplied and AWS_DEFAULT_REGION undefined";
 
-[ -n "${project}" ] \
-  || error_and_die "Required argument -p/--project not specified";
+# Set project from args or current folder.
+readonly project="${project_arg:-${project_name_default}}";
 
 # Bootstrapping is special
 if [ "${bootstrap}" == "true" ]; then
