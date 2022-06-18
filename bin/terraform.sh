@@ -408,6 +408,7 @@ esac;
 # Value is irrelavant, just needs to be non-null
 export TF_IN_AUTOMATION="true";
 
+# Do we have a CLI config file? https://www.terraform.io/cli/config/config-file
 for rc_path in "${base_path}" "${base_path}/etc" "${component_path}"; do
   if [ -f "${rc_path}/.terraformrc" ]; then
     echo "Found .terraformrc at ${rc_path}/.terraformrc. Overriding.";
@@ -417,7 +418,8 @@ done;
 
 # Configure the plugin-cache location so plugins are not
 # downloaded to individual components
-declare default_plugin_cache_dir="$(pwd)/plugin-cache";
+declare default_plugin_cache_dir;
+default_plugin_cache_dir="$(pwd)/plugin-cache";
 export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${default_plugin_cache_dir}}"
 mkdir -p "${TF_PLUGIN_CACHE_DIR}" \
   || error_and_die "Failed to created the plugin-cache directory (${TF_PLUGIN_CACHE_DIR})";
@@ -509,9 +511,8 @@ else
 
   tf_var_file_paths+=("${env_file_path}");
 
-  # If present and readable, use versions and dynamic variables too
+  # If present and readable, use versions variables
   [ -f "${versions_file_path}" ] && tf_var_file_paths+=("${versions_file_path}");
-  [ -f "${dynamic_file_path}" ] && tf_var_file_paths+=("${dynamic_file_path}");
 
   # Warn on variables duplication
   duplicate_variables="$(cat "${tf_var_file_paths[@]}" | sed -n -e 's/\(^[a-zA-Z0-9_\-]\+\)\s*=.*$/\1/p' | sort | uniq -d)";
@@ -536,7 +537,6 @@ fi;
 # Anti-pattern and security warning: This secrets mechanism provides very little additional security.
 # It permits you to inject secrets directly into terraform without storing them in source control or unencrypted in S3.
 # Secrets will still be stored in all copies of your state file - which will be stored on disk wherever this script is run and in S3.
-# This script does not currently support encryption of state files.
 # Use this feature only if you're sure it's the right pattern for your use case.
 declare -a secrets=();
 readonly secrets_file_name="secret.tfvars.enc";

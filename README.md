@@ -21,7 +21,7 @@ Terraform scaffold consists of a terraform wrapper bash script, a bootstrap scri
 
 ### Multi-Component Environment Concept
 
-The Scaffold is built around the concept that a logical "environment" may consist of any number of independent components across independent AWS accounts. What provides consistency across these components, and therefore defines the environment, are the variables shared between the components. For example, the CIDR block defining a primary VPC for a production environment is needed by the component that creates the VPC, it may also be needed by components in other VPCs or accounts. All components in a production enviroment are likely to share the "envirornment" variable value "production".
+The Scaffold is built around the concept that a logical "environment" may consist of any number of independent components across independent AWS accounts. What provides consistency across these components, and therefore defines the environment, are the variables shared between the components. For example, the CIDR block defining a primary VPC for a production environment is needed by the component that creates the VPC, it may also be needed by components in other VPCs or accounts. All components in a production environment are likely to share the "environment" variable value "production".
 
 Scaffold achieves this by maintaining variables specific to an environment in the file _etc/env_{region}_{environment}.tfvars_, and then providing those variables as inputs to all components run for that environment. Any variables not required by a component are safely ignored, but all components have visibility of all variables for an environment.
 
