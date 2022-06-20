@@ -387,7 +387,6 @@ case "${action}" in
     ;;
   destroy)
     destroy='-destroy';
-    force='-force';
     refresh="-refresh=true";
     ;;
   plan)
@@ -425,6 +424,8 @@ mkdir -p "${TF_PLUGIN_CACHE_DIR}" \
   || error_and_die "Failed to created the plugin-cache directory (${TF_PLUGIN_CACHE_DIR})";
 [ -w "${TF_PLUGIN_CACHE_DIR}" ] \
   || error_and_die "plugin-cache directory (${TF_PLUGIN_CACHE_DIR}) not writable";
+
+echo "plugins go to ${TF_PLUGIN_CACHE_DIR}"
 
 # Clear cache, safe enough as we enforce plugin cache
 rm -rf ${component_path}/.terraform;
@@ -606,11 +607,11 @@ declare backend_filename;
 if [ "${bootstrap}" == "true" ]; then
   backend_prefix="${project}/${aws_account_id}/${region}/bootstrap";
   backend_filename="bootstrap.tfstate";
-  dynamodb_table="null";
+  dynamodb_table="${bucket}";
 else
   backend_prefix="${project}/${aws_account_id}/${region}/${environment}";
   backend_filename="${component_name}.tfstate";
-  dynamodb_table="\"${bucket}\"";
+  dynamodb_table="${bucket}";
 fi;
 
 readonly backend_key="${backend_prefix}/${backend_filename}";
